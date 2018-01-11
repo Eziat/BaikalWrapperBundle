@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<container xmlns="http://symfony.com/schema/dic/services"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
+
+    <services>
+
+        <service id="Eziat\BaikalWrapperBundle\Service\BaikalAdapter" public="false">
+            <argument type="service" id="Eziat\BaikalWrapperBundle\Utils\VCardUtil"
+                      key="$vCardUtil"/>
+            <argument key="$dbHost">%baikal.db_host%</argument>
+            <argument key="$dbName">%baikal.db_name%</argument>
+            <argument key="$dbUser">%baikal.db_user%</argument>
+            <argument key="$dbPassword">%baikal.db_password%</argument>
+        </service>
+
+        <service id="Eziat\BaikalWrapperBundle\Utils\VCardUtil" public="false"/>
+
+    </services>
+
+</container>
