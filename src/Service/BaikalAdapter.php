@@ -1,10 +1,9 @@
 <?php
 
-declare(strict_types = 1);
+declare(strict_types=1);
 
 namespace Eziat\BaikalWrapperBundle\Service;
 
-use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Driver\Mysqli\MysqliConnection;
 use Doctrine\DBAL\Driver\Mysqli\MysqliException;
 use Eziat\BaikalWrapperBundle\Utils\VCardUtil;
@@ -17,41 +16,66 @@ class BaikalAdapter
     /** @var $vCardUtil VCardUtil */
     private $vCardUtil;
 
-    /** @var $baikalDbalConnection Connection */
+    /** @var $baikalDbalConnection MysqliConnection */
     private $baikalDbalConnection;
+
+    private $dbHost;
+    private $dbName;
+    private $dbUser;
+    private $dbPassword;
 
     /**
      * Initialize the DB connection to Baikal.
      *
      * @throws MysqliException
      */
-    public function __construct(VCardUtil $vCardUtil, string $dbHost, string $dbName, string $dbUser, string $dbPassword)
+    public function __construct(
+        VCardUtil $vCardUtil,
+        string $dbHost,
+        string $dbName,
+        string $dbUser,
+        string $dbPassword
+    ) {
+        $this->vCardUtil = $vCardUtil;
+        $this->dbHost = $dbHost;
+        $this->dbName = $dbName;
+        $this->dbUser = $dbUser;
+        $this->dbPassword = $dbPassword;
+    }
+
+    public function getConnection(): MysqliConnection
     {
-        $this->vCardUtil            = $vCardUtil;
-        $params                     = [
-            "dbname" => $dbName,
-            "host"   => $dbHost,
+        if ( $this->baikalDbalConnection !== null ){
+            return $this->baikalDbalConnection;
+        }
+        $params = [
+            "dbname" => $this->dbName,
+            "host" => $this->dbHost,
         ];
-        $this->baikalDbalConnection = new MysqliConnection($params, $dbUser, $dbPassword);
+        $conn = new MysqliConnection($params, $this->dbUser, $this->dbPassword);
+        $this->baikalDbalConnection = $conn;
+
+        return $this->baikalDbalConnection;
     }
 
     /**
      * Adds or updates a card in the Baikal DB.
      * Returns true, if a change in Baikal was necessary
      *
-     * @param string $cardUri     The cardUri in Baikal to look for
+     * @param string $cardUri The cardUri in Baikal to look for
      * @param string $personVcard The VCard content as string
      * @param int    $addressBookId
      *
      * @return bool true, if the card was inserted or changed, false if the data in baikal is already up-to-date
      */
-    public function addOrUpdateVcard(string $cardUri, string $personVcard, int $addressBookId) : bool
+    public function addOrUpdateVcard(string $cardUri, string $personVcard, int $addressBookId): bool
     {
         $existingCard = $this->getBaikalVcardFromCardUri($cardUri);
 
         if ($existingCard) {
             $existingVcardString = $existingCard["carddata"];
-            $vcardNeedsUpdate    = !$this->vCardUtil->vcardsAreEqual($existingVcardString, $personVcard);
+            $vcardNeedsUpdate = !$this->vCardUtil->vcardsAreEqual($existingVcardString,
+                $personVcard);
 
             if ($vcardNeedsUpdate) {
                 $this->updateVcard($cardUri, $personVcard);
@@ -67,56 +91,61 @@ class BaikalAdapter
         }
     }
 
-    public function baikalUserExists(string $username) : bool
+    public function baikalUserExists(string $username): bool
     {
-        $principalUri    = $this->getBaikalPrincipalUriByUsername($username);
-        $foundPrincipals = $this->baikalDbalConnection
+        $principalUri = $this->getBaikalPrincipalUriByUsername($username);
+        $foundPrincipals = $this->getConnection()
             ->query("SELECT id FROM principals WHERE uri = '$principalUri'")
             ->fetchAll();
 
         return sizeof($foundPrincipals) > 0;
     }
 
-    public function createBaikalUser(string $username, string $passwordDigest, ?string $email = null) : void
-    {
-        $this->baikalDbalConnection
+    public function createBaikalUser(
+        string $username,
+        string $passwordDigest,
+        ?string $email = null
+    ): void {
+        $this->getConnection()
             ->query(
                 "INSERT INTO users (username, digesta1) ".
                 "VALUES ('$username', '$passwordDigest')");
 
         $principalUri = $this->getBaikalPrincipalUriByUsername($username);
         if ($email) {
-            $this->baikalDbalConnection
+            $this->getConnection()
                 ->query(
                     "INSERT INTO principals (uri, displayname, email) ".
                     "VALUES ('$principalUri', '$username', '$email')");
         } else {
-            $this->baikalDbalConnection
+            $this->getConnection()
                 ->query(
                     "INSERT INTO principals (uri, displayname) ".
                     "VALUES ('$principalUri', '$username')");
         }
     }
 
-    public function deleteBaikalUser(string $username) : void
+    public function deleteBaikalUser(string $username): void
     {
         $principalUri = $this->getBaikalPrincipalUriByUsername($username);
-        $this->baikalDbalConnection
+        $this->getConnection()
             ->query(
                 "DELETE cards FROM cards INNER JOIN addressbooks ON cards.addressbookid = addressbooks.id
                 WHERE principaluri = '$principalUri'");
-        $this->baikalDbalConnection
+        $this->getConnection()
             ->query("DELETE FROM addressbooks WHERE principaluri = '$principalUri'");
-        $this->baikalDbalConnection
+        $this->getConnection()
             ->query("DELETE FROM principals WHERE uri = '$principalUri'");
-        $this->baikalDbalConnection
+        $this->getConnection()
             ->query("DELETE FROM users WHERE username = '$username'");
     }
 
-    public function createAddressBookFor(string $username, ?string $addressBookName = "default") : void
-    {
+    public function createAddressBookFor(
+        string $username,
+        ?string $addressBookName = "default"
+    ): void {
         $principalUri = $this->getBaikalPrincipalUriByUsername($username);
-        $this->baikalDbalConnection
+        $this->getConnection()
             ->query(
                 "INSERT INTO addressbooks (principaluri, displayname, uri, description, synctoken)  ".
                 "VALUES ('$principalUri', '$addressBookName', '$addressBookName', '$addressBookName', 0)");
@@ -126,10 +155,12 @@ class BaikalAdapter
      * Gets the default address book of the user (principal) with the given
      * principal URI
      */
-    public function getAddressBookIdByUsername(string $username, string $addressBookName = "default") : ?int
-    {
-        $principalUri    = $this->getBaikalPrincipalUriByUsername($username);
-        $addressBookLine = $this->baikalDbalConnection
+    public function getAddressBookIdByUsername(
+        string $username,
+        string $addressBookName = "default"
+    ): ?int {
+        $principalUri = $this->getBaikalPrincipalUriByUsername($username);
+        $addressBookLine = $this->getConnection()
             ->query(
                 "SELECT id FROM addressbooks ".
                 "WHERE principaluri = '$principalUri'".
@@ -145,18 +176,21 @@ class BaikalAdapter
         }
     }
 
-    public function markAddressbookUpdated(int $addressBookId) : void
+    public function markAddressbookUpdated(int $addressBookId): void
     {
-        $this->baikalDbalConnection->query("UPDATE addressbooks SET synctoken = synctoken + 1 WHERE id = $addressBookId");
+        $this->getConnection()->query("UPDATE addressbooks SET synctoken = synctoken + 1 WHERE id = $addressBookId");
     }
 
-    protected function insertNewVcard(int $addressBookId, string $vCardUri, string $personVcardString) : void
-    {
+    protected function insertNewVcard(
+        int $addressBookId,
+        string $vCardUri,
+        string $personVcardString
+    ): void {
         $currentUnixDate = (new \DateTime("now"))->getTimestamp();
 
-        $sql  = "INSERT INTO cards(addressbookid, carddata, uri, lastmodified)"
-                ."VALUES (?, ?, ?, ?)";
-        $stmt = $this->baikalDbalConnection->prepare($sql);
+        $sql = "INSERT INTO cards(addressbookid, carddata, uri, lastmodified)"
+            ."VALUES (?, ?, ?, ?)";
+        $stmt = $this->getConnection()->prepare($sql);
         $stmt->bindValue(1, $addressBookId);
         $stmt->bindValue(2, $personVcardString);
         $stmt->bindValue(3, $vCardUri);
@@ -164,14 +198,14 @@ class BaikalAdapter
         $stmt->execute();
     }
 
-    protected function updateVcard(string $vCardUri, string $personVcardString) : void
+    protected function updateVcard(string $vCardUri, string $personVcardString): void
     {
         $currentUnixDate = (new \DateTime("now"))->getTimestamp();
-        $sql             = "UPDATE cards ".
-                           "SET carddata = ?, ".
-                           "lastmodified=? ".
-                           "WHERE uri = ?";
-        $stmt            = $this->baikalDbalConnection->prepare($sql);
+        $sql = "UPDATE cards ".
+            "SET carddata = ?, ".
+            "lastmodified=? ".
+            "WHERE uri = ?";
+        $stmt = $this->getConnection()->prepare($sql);
         $stmt->bindValue(1, $personVcardString);
         $stmt->bindValue(2, $currentUnixDate);
         $stmt->bindValue(3, $vCardUri);
@@ -183,16 +217,16 @@ class BaikalAdapter
      * Returns null if no card is found or an assoc. array representing
      * the data DB entry
      */
-    protected function getBaikalVcardFromCardUri(string $vCardUri) : ?array
+    protected function getBaikalVcardFromCardUri(string $vCardUri): ?array
     {
-        $existingCards = $this->baikalDbalConnection
+        $existingCards = $this->getConnection()
             ->query("SELECT * FROM cards WHERE uri = '$vCardUri'")->fetchAll();
-        $existingCard  = array_pop($existingCards);
+        $existingCard = array_pop($existingCards);
 
         return $existingCard;
     }
 
-    public function getBaikalPrincipalUriByUsername(string $username) : string
+    public function getBaikalPrincipalUriByUsername(string $username): string
     {
         return "principals/$username";
 
