@@ -45,7 +45,7 @@ class BaikalAdapter
 
     public function getConnection(): MysqliConnection
     {
-        if ( $this->baikalDbalConnection !== null ){
+        if ($this->baikalDbalConnection !== null) {
             return $this->baikalDbalConnection;
         }
         $params = [
@@ -62,7 +62,7 @@ class BaikalAdapter
      * Adds or updates a card in the Baikal DB.
      * Returns true, if a change in Baikal was necessary
      *
-     * @param string $cardUri The cardUri in Baikal to look for
+     * @param string $cardUri     The cardUri in Baikal to look for
      * @param string $personVcard The VCard content as string
      * @param int    $addressBookId
      *
@@ -95,10 +95,26 @@ class BaikalAdapter
     {
         $principalUri = $this->getBaikalPrincipalUriByUsername($username);
         $foundPrincipals = $this->getConnection()
-            ->query("SELECT id FROM principals WHERE uri = '$principalUri'")
-            ->fetchAll();
+                                ->query("SELECT id FROM principals WHERE uri = '$principalUri'")
+                                ->fetchAll();
 
         return sizeof($foundPrincipals) > 0;
+    }
+
+    public function createPrincipal(string $username, ?string $email = null): void
+    {
+        $principalUri = $this->getBaikalPrincipalUriByUsername($username);
+        if ($email) {
+            $this->getConnection()
+                 ->query(
+                     "INSERT INTO principals (uri, displayname, email) ".
+                     "VALUES ('$principalUri', '$username', '$email')");
+        } else {
+            $this->getConnection()
+                 ->query(
+                     "INSERT INTO principals (uri, displayname) ".
+                     "VALUES ('$principalUri', '$username')");
+        }
     }
 
     public function createBaikalUser(
@@ -107,37 +123,25 @@ class BaikalAdapter
         ?string $email = null
     ): void {
         $this->getConnection()
-            ->query(
-                "INSERT INTO users (username, digesta1) ".
-                "VALUES ('$username', '$passwordDigest')");
-
-        $principalUri = $this->getBaikalPrincipalUriByUsername($username);
-        if ($email) {
-            $this->getConnection()
-                ->query(
-                    "INSERT INTO principals (uri, displayname, email) ".
-                    "VALUES ('$principalUri', '$username', '$email')");
-        } else {
-            $this->getConnection()
-                ->query(
-                    "INSERT INTO principals (uri, displayname) ".
-                    "VALUES ('$principalUri', '$username')");
-        }
+             ->query(
+                 "INSERT INTO users (username, digesta1) ".
+                 "VALUES ('$username', '$passwordDigest')");
+        $this->createPrincipal($username, $email);
     }
 
     public function deleteBaikalUser(string $username): void
     {
         $principalUri = $this->getBaikalPrincipalUriByUsername($username);
         $this->getConnection()
-            ->query(
-                "DELETE cards FROM cards INNER JOIN addressbooks ON cards.addressbookid = addressbooks.id
+             ->query(
+                 "DELETE cards FROM cards INNER JOIN addressbooks ON cards.addressbookid = addressbooks.id
                 WHERE principaluri = '$principalUri'");
         $this->getConnection()
-            ->query("DELETE FROM addressbooks WHERE principaluri = '$principalUri'");
+             ->query("DELETE FROM addressbooks WHERE principaluri = '$principalUri'");
         $this->getConnection()
-            ->query("DELETE FROM principals WHERE uri = '$principalUri'");
+             ->query("DELETE FROM principals WHERE uri = '$principalUri'");
         $this->getConnection()
-            ->query("DELETE FROM users WHERE username = '$username'");
+             ->query("DELETE FROM users WHERE username = '$username'");
     }
 
     public function createAddressBookFor(
@@ -146,9 +150,9 @@ class BaikalAdapter
     ): void {
         $principalUri = $this->getBaikalPrincipalUriByUsername($username);
         $this->getConnection()
-            ->query(
-                "INSERT INTO addressbooks (principaluri, displayname, uri, description, synctoken)  ".
-                "VALUES ('$principalUri', '$addressBookName', '$addressBookName', '$addressBookName', 0)");
+             ->query(
+                 "INSERT INTO addressbooks (principaluri, displayname, uri, description, synctoken)  ".
+                 "VALUES ('$principalUri', '$addressBookName', '$addressBookName', '$addressBookName', 0)");
     }
 
     /**
@@ -161,11 +165,11 @@ class BaikalAdapter
     ): ?int {
         $principalUri = $this->getBaikalPrincipalUriByUsername($username);
         $addressBookLine = $this->getConnection()
-            ->query(
-                "SELECT id FROM addressbooks ".
-                "WHERE principaluri = '$principalUri'".
-                "AND uri = '$addressBookName'")
-            ->fetchAll();
+                                ->query(
+                                    "SELECT id FROM addressbooks ".
+                                    "WHERE principaluri = '$principalUri'".
+                                    "AND uri = '$addressBookName'")
+                                ->fetchAll();
 
         if (sizeof($addressBookLine)) {
             $addressBookId = $addressBookLine[0]["id"];
@@ -178,7 +182,8 @@ class BaikalAdapter
 
     public function markAddressbookUpdated(int $addressBookId): void
     {
-        $this->getConnection()->query("UPDATE addressbooks SET synctoken = synctoken + 1 WHERE id = $addressBookId");
+        $this->getConnection()
+             ->query("UPDATE addressbooks SET synctoken = synctoken + 1 WHERE id = $addressBookId");
     }
 
     protected function insertNewVcard(
@@ -220,7 +225,7 @@ class BaikalAdapter
     protected function getBaikalVcardFromCardUri(string $vCardUri): ?array
     {
         $existingCards = $this->getConnection()
-            ->query("SELECT * FROM cards WHERE uri = '$vCardUri'")->fetchAll();
+                              ->query("SELECT * FROM cards WHERE uri = '$vCardUri'")->fetchAll();
         $existingCard = array_pop($existingCards);
 
         return $existingCard;
